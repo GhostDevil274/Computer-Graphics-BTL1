@@ -1,0 +1,8 @@
+PyOpenGL 
+PyOpenGL_accelerate 
+opencv-python 
+glfw 
+numpy 
+pandas
+imgui[glfw] 
+Pillow

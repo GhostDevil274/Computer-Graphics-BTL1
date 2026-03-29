@@ -63,8 +63,6 @@ def perspective(fovy, aspect, zNear, zFar):
     res[3,2] = -1.0
     return res
 
-# --- BẠN DÁN ĐOẠN NÀY XUỐNG DƯỚI CÙNG CỦA FILE libs/transform.py ---
-
 class Trackball:
     """ Lớp Camera quỹ đạo (Orbit Camera) điều khiển bằng chuột 3D """
     def __init__(self, distance=4.0, target=(0.0, 0.0, 0.0)):

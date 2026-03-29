@@ -12,16 +12,13 @@ uniform sampler2D tex_diffuse;
 
 uniform vec3 viewPos;
 uniform bool is_depth_map; 
-uniform vec3 bg_color; // BIẾN MỚI: Lấy màu nền từ Python truyền xuống
+uniform vec3 bg_color;
 
-// 3 CÔNG TẮC ĐÈN 
+
 uniform bool light1_on;
 uniform bool light2_on;
 uniform bool light3_on; 
 
-// ==========================================
-// THÔNG SỐ ÁNH SÁNG
-// ==========================================
 vec3 sunLightDir = normalize(vec3(0.0, 1.0, 0.5)); 
 vec3 sunLightColor = vec3(1.4, 1.4, 1.4); 
 
@@ -31,9 +28,6 @@ vec3 pointLight1Color = vec3(1.0, 0.5, 0.0);
 vec3 pointLight2Pos = vec3(-1.5, 0.0, 2.0); 
 vec3 pointLight2Color = vec3(0.0, 0.5, 1.0);
 
-// =====================================================
-// HÀM TUYẾN TÍNH HÓA ĐỘ SÂU
-// =====================================================
 float near = 0.1;  
 float far  = 50.0; 
 
@@ -70,9 +64,6 @@ vec3 calcPointLight(vec3 lightPos, vec3 lightColor, vec3 norm, vec3 fragPos, vec
 }
 
 void main() {
-    // ----------------------------------------------------
-    // CHẾ ĐỘ DEPTH MAP: SƯƠNG MÙ HÒA TAN VÀO NỀN (CHỐNG MỎI MẮT)
-    // ----------------------------------------------------
     if (is_depth_map) {
         float depth = LinearizeDepth(gl_FragCoord.z) / far; 
         depth = clamp(depth, 0.0, 1.0);
@@ -85,9 +76,6 @@ void main() {
         return; 
     }
 
-    // ----------------------------------------------------
-    // CHẾ ĐỘ RENDER BÌNH THƯỜNG
-    // ----------------------------------------------------
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
     

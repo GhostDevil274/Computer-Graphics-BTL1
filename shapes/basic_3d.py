@@ -199,8 +199,6 @@ class Cube(BaseShape):
         uvs.extend(get_uv(3, 1)) # Mặt Sau
         uvs.extend(get_uv(0, 1)) # Mặt Trái
         uvs.extend(get_uv(2, 1)) # Mặt Phải
-        
-        # ĐÃ FIX: Trả lại đúng CỘT 2 cho mặt Trên/Dưới, hết bị đen thui nha!
         uvs.extend(get_uv(2, 2)) # Mặt Trên
         uvs.extend(get_uv(2, 0)) # Mặt Dưới
         
@@ -232,7 +230,6 @@ class Tetrahedron(BaseShape):
         super().__init__(np.array(vertices, dtype=np.float32), 
                          np.array(indices, dtype=np.uint32), 
                          generate_rainbow_colors(vertices))
-
 
 
 "Mặt toán học được định nghĩa bởi hàm do người dùng cung cấp z = f(x, y)"
@@ -286,11 +283,10 @@ class MathSurface(BaseShape):
                          np.array(indices, dtype=np.uint32), 
                          generate_rainbow_colors(vertices))
         
+        
 "Mô hình 3D được nhập từ file .obj hoặc .ply."
-
 class ObjModel(BaseShape):
     def __init__(self, filepath="model.obj"):
-        """ Bộ đọc file OBJ đơn giản và trâu bò """
         vertices = []
         indices = []
         
@@ -302,31 +298,24 @@ class ObjModel(BaseShape):
         else:
             with open(filepath, 'r') as f:
                 for line in f:
-                    # Tách dòng thành các chữ, bỏ qua dòng trống
                     parts = line.strip().split()
                     if not parts: continue
                     
                     if parts[0] == 'v':
-                        # Dòng này là Đỉnh (Vertex): v x y z
                         vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
                         
                     elif parts[0] == 'f':
-                        # Dòng này là Mặt (Face): f v1/vt1/vn1 v2/vt2/vn2 v3/vt3/vn3
-                        # Ta chỉ quan tâm con số đầu tiên (v1, v2, v3)
                         face_verts = []
                         for p in parts[1:]:
-                            idx = int(p.split('/')[0]) - 1 # Trừ 1 vì OBJ đếm từ 1
+                            idx = int(p.split('/')[0]) - 1
                             face_verts.append(idx)
                             
-                        # Nếu mặt là Tam giác (3 điểm)
                         if len(face_verts) == 3:
                             indices.extend(face_verts)
-                        # Nếu mặt là Tứ giác (4 điểm), ta tự động chẻ làm 2 tam giác
                         elif len(face_verts) == 4:
                             indices.extend([face_verts[0], face_verts[1], face_verts[2]])
                             indices.extend([face_verts[0], face_verts[2], face_verts[3]])
 
-        # Scale mô hình cho vừa màn hình (chống trường hợp mô hình quá to hoặc quá nhỏ)
         verts_array = np.array(vertices, dtype=np.float32)
         if len(verts_array) > 0:
             max_val = np.max(np.abs(verts_array)) if np.max(np.abs(verts_array)) > 0 else 1.0
@@ -336,18 +325,13 @@ class ObjModel(BaseShape):
                          np.array(indices, dtype=np.uint32), 
                          generate_rainbow_colors(verts_array))
         
-
-# =======================================================
-# LƯỚI BẢN ĐỒ NHIỆT (Dành riêng cho Tab AI Optimizer)
-# =======================================================
 class HeatmapSurface(BaseShape):
     def __init__(self, loss_name="Quadratic", custom_func_str="x**2 + y**2"):
         from libs.ai_optim import LossFunction 
         
-        # MỞ RỘNG BẢN ĐỒ VÀ TĂNG ĐỘ NÉT CỦA LƯỚI
         if loss_name == "Quadratic": domain, res = 6.0, 80
         elif loss_name == "Booth": domain, res = 10.0, 80
-        elif loss_name == "Himmelblau": domain, res = 6.0, 100 # Rộng hơn để thấy trọn 4 hố
+        elif loss_name == "Himmelblau": domain, res = 6.0, 100 
         elif loss_name == "Rosenbrock": domain, res = 3.0, 100
         elif loss_name == "Custom": domain, res = 6.0, 80
             
@@ -375,7 +359,6 @@ class HeatmapSurface(BaseShape):
                     z_val, _, _ = LossFunction.get_val_and_grad(loss_name, X[i,j], Y[i,j])
                     Z[i,j] = z_val 
                 
-        # Màu Pastel (Soft Heatmap)
         z_min, z_max = np.min(Z), np.max(Z)
         z_norm = (Z - z_min) / (z_max - z_min + 1e-6)
         

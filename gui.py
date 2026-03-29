@@ -60,7 +60,6 @@ class AppGUI:
         self.sim_playing = False
         self.reset_requested = False
         
-        # ĐÃ THÊM: Cờ hiệu để chỉ dời bi, không reset camera
         self.reposition_requested = False 
 
     def render(self, optims, current_epoch, cameras, scene_objects):
@@ -98,7 +97,6 @@ class AppGUI:
                     self.add_shape_requested = True
             
             imgui.same_line()
-            # ĐÃ DỌN DẸP DẤU x
             if imgui.button("Clear Scene", width=-1):
                 self.clear_scene_requested = True
                 self.spawn_pos = [0.0, 0.0, 0.0]
@@ -179,9 +177,7 @@ class AppGUI:
 
         imgui.end()
 
-        # =========================================================
-        # BẢNG BÊN PHẢI (AI)
-        # =========================================================
+
         io = imgui.get_io()
         imgui.set_next_window_size(420, 860, imgui.FIRST_USE_EVER)
         imgui.set_next_window_position(io.display_size.x - 440, 20, imgui.FIRST_USE_EVER)
@@ -215,7 +211,6 @@ class AppGUI:
                 imgui.text_colored("God Mode Controls:", 1.0, 0.8, 0.2)
                 _, self.custom_z_scale = imgui.slider_float("Mountain Z-Scale", self.custom_z_scale, 0.001, 1.0, format="%.3f")
                 
-                # ĐÃ FIX: Chỉ gọi Reposition (chứ không Reset toàn cục) khi kéo Slider
                 changed_x, self.start_x = imgui.slider_float("Drop Pos X", self.start_x, -10.0, 10.0)
                 changed_y, self.start_y = imgui.slider_float("Drop Pos Y", self.start_y, -10.0, 10.0)
                 if changed_x or changed_y:
@@ -249,7 +244,6 @@ class AppGUI:
             if expanded_sim:
                 imgui.spacing()
                 
-                # ĐÃ DỌN DẸP DẤU CHỮ NHÌN CHO SẠCH
                 if self.sim_playing:
                     if imgui.button("PAUSE", width=110): self.sim_playing = False
                 else:

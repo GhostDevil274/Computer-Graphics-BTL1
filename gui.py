@@ -18,19 +18,20 @@ class AppGUI:
         
         self.math_func_str = "sin(x) + cos(y)"
         self.obj_filepath = "bugatti.obj"
-        self.texture_filepath = "texture.jpg"
-        self.texture_changed = False 
         
         self.spawn_pos = [0.0, 0.0, 0.0]
         self.fetch_cam_target = False 
         self.add_shape_requested = False 
         self.clear_scene_requested = False
-        self.selected_scene_obj_idx = 0 
         
-        self.render_mode = 1 
+        self.delete_obj_requested = False
+        self.duplicate_obj_requested = False
+        self.selected_scene_obj_idx = 0 
+        self.target_tex_obj_idx = 0
+        self.texture_changed = False
+        
         self.is_depth_map = False
         self.is_wireframe = False
-        self.flat_color = [0.8, 0.2, 0.3]
         self.lights = [True, False, False]
         self.bg_color = [0.1, 0.1, 0.15]
         
@@ -59,7 +60,6 @@ class AppGUI:
         self.steps_per_sec = 10 
         self.sim_playing = False
         self.reset_requested = False
-        
         self.reposition_requested = False 
 
     def render(self, optims, current_epoch, cameras, scene_objects):
@@ -92,7 +92,6 @@ class AppGUI:
                 self.spawn_pos = list(self.spawn_pos)
                 
                 imgui.spacing()
-                # ĐÃ DỌN DẸP DẤU +
                 if imgui.button("Add to Scene", width=200):
                     self.add_shape_requested = True
             
@@ -106,23 +105,27 @@ class AppGUI:
             _, self.is_depth_map = imgui.checkbox("Depth Map Mode", self.is_depth_map)
             _, self.is_wireframe = imgui.checkbox("Wireframe Overlay", self.is_wireframe)
             
-            if not self.is_depth_map:
-                imgui.spacing()
-                _, self.render_mode = imgui.combo("Shading", self.render_mode, ["(A) Flat Color", "(B) Vertex Color", "(C) Phong Lighting", "(D) Texture Map", "(E) Combination"])
+            if len(scene_objects) > 0 and not self.is_depth_map:
+                active_obj = scene_objects[self.selected_scene_obj_idx]
+                imgui.text_colored(f"Editing Material for: {active_obj.name}", 0.4, 1.0, 0.4)
                 
-                if self.render_mode in [3, 4]:
+                _, active_obj.render_mode = imgui.combo("Shading", active_obj.render_mode, ["(A) Flat Color", "(B) Vertex Color", "(C) Phong Lighting", "(D) Texture Map", "(E) Combination"])
+                
+                if active_obj.render_mode in [3, 4]:
                     imgui.spacing()
-                    enter, self.texture_filepath = imgui.input_text("Tex Image", self.texture_filepath, 256, flags=imgui.INPUT_TEXT_ENTER_RETURNS_TRUE)
-                    if imgui.button("Apply Texture", width=-1) or enter: self.texture_changed = True
+                    enter, active_obj.texture_filepath = imgui.input_text("Tex Image", active_obj.texture_filepath, 256, flags=imgui.INPUT_TEXT_ENTER_RETURNS_TRUE)
+                    if imgui.button("Apply Texture", width=-1) or enter: 
+                        self.texture_changed = True
+                        self.target_tex_obj_idx = self.selected_scene_obj_idx 
 
-                if self.render_mode == 0: 
+                if active_obj.render_mode == 0: 
                     imgui.spacing()
-                    _, self.flat_color = imgui.color_edit3("Base Color", *self.flat_color)
-                    
-                if self.render_mode in [2, 4]:
-                    imgui.spacing()
-                    imgui.text_colored("Light Sources:", 0.4, 0.8, 1.0)
-                    _, self.lights[0] = imgui.checkbox("[1] Sun Light", self.lights[0])
+                    _, active_obj.flat_color = imgui.color_edit3("Base Color", *active_obj.flat_color)
+
+                if active_obj.render_mode in [2, 4]:
+                    imgui.spacing(); imgui.separator(); imgui.spacing()
+                    imgui.text_colored("Global Light Sources:", 1.0, 0.8, 0.2)
+                    _, self.lights[0] = imgui.checkbox("[1] Sun Light (Directional)", self.lights[0])
                     _, self.lights[1] = imgui.checkbox("[2] Warm Point Light", self.lights[1])
                     _, self.lights[2] = imgui.checkbox("[3] Cool Point Light", self.lights[2])
         
@@ -137,6 +140,14 @@ class AppGUI:
                 _, self.selected_scene_obj_idx = imgui.combo("##ActiveObj", self.selected_scene_obj_idx, obj_names)
                 
                 active_obj = scene_objects[self.selected_scene_obj_idx]
+                
+                imgui.spacing()
+                if imgui.button("Delete Object", width=130):
+                    self.delete_obj_requested = True
+                imgui.same_line()
+                if imgui.button("Duplicate Object", width=-1):
+                    self.duplicate_obj_requested = True
+                imgui.separator()
                 
                 imgui.spacing()
                 imgui.text_colored("[HOTKEYS] MOUSE MANIPULATION:", 1.0, 0.8, 0.0)
@@ -176,7 +187,6 @@ class AppGUI:
                 cam.target = [0.0, 0.0, 0.0]
 
         imgui.end()
-
 
         io = imgui.get_io()
         imgui.set_next_window_size(420, 860, imgui.FIRST_USE_EVER)

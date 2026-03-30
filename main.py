@@ -14,7 +14,6 @@ from shapes.basic_3d import (
     Cylinder, Cone, TruncatedCone, Torus, SphereLatLong, 
     SphereSubdivision, SphereCube, Cube, Tetrahedron, MathSurface, ObjModel, HeatmapSurface
 )
-
 from libs.ai_optim import GradientDescent, Momentum, Nesterov, RMSprop, Adam, LossFunction
 
 class SceneObject:
@@ -27,6 +26,11 @@ class SceneObject:
         self.pos_x = 0.0
         self.pos_y = 0.0
         self.pos_z = 0.0
+        
+        self.render_mode = 1 
+        self.flat_color = [0.8, 0.2, 0.3]
+        self.texture_id = 0
+        self.texture_filepath = "texture.jpeg"
 
 def load_texture(filepath):
     if not filepath.startswith("assets"): filepath = os.path.join("assets", "textures", filepath)
@@ -63,20 +67,20 @@ class LinePath:
         GL.glUniform1i(GL.glGetUniformLocation(shader_idx, "render_mode"), 0)
         GL.glUniform3f(GL.glGetUniformLocation(shader_idx, "flat_color"), *color)
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(shader_idx, "model"), 1, GL.GL_TRUE, model_matrix)
+        
         GL.glLineWidth(4.0)
         GL.glDrawArrays(GL.GL_LINE_STRIP, 0, len(pts))
         GL.glLineWidth(1.0)
+        
         GL.glBindVertexArray(0)
 
 def screen_to_world_ray(xpos, ypos, win_w, win_h, view_matrix, proj_matrix):
     ndc_x = (2.0 * xpos) / win_w - 1.0
     ndc_y = 1.0 - (2.0 * ypos) / win_h
     ray_clip = np.array([ndc_x, ndc_y, -1.0, 1.0])
-    
     inv_proj = np.linalg.inv(proj_matrix)
     ray_eye = np.dot(inv_proj, ray_clip)
     ray_eye = np.array([ray_eye[0], ray_eye[1], -1.0, 0.0])
-    
     inv_view = np.linalg.inv(view_matrix)
     ray_wor = np.dot(inv_view, ray_eye)[:3]
     ray_wor = ray_wor / np.linalg.norm(ray_wor)
@@ -85,31 +89,39 @@ def screen_to_world_ray(xpos, ypos, win_w, win_h, view_matrix, proj_matrix):
 
 def main():
     if not glfw.init(): return
+    
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+    glfw.window_hint(glfw.SAMPLES, 4) 
     
     monitor = glfw.get_primary_monitor()
     video_mode = glfw.get_video_mode(monitor)
     win_w = int(video_mode.size.width * 0.75)
     win_h = int(video_mode.size.height * 0.75)
     
-    window = glfw.create_window(win_w, win_h, "BTL 1", None, None)
+    window = glfw.create_window(win_w, win_h, "Viewer", None, None)
     glfw.set_window_pos(window, int((video_mode.size.width - win_w)/2), int((video_mode.size.height - win_h)/2))
 
     glfw.make_context_current(window)
     GL.glEnable(GL.GL_DEPTH_TEST)
+    GL.glEnable(GL.GL_MULTISAMPLE) 
     
     imgui.create_context()
-    impl = GlfwRenderer(window)
-    imgui.get_io().font_global_scale = 1.25
+    io = imgui.get_io()
+    io.font_global_scale = 1.36
     imgui.style_colors_dark() 
+    impl = GlfwRenderer(window)
     
     dummy_vao = GL.glGenVertexArrays(1)
     GL.glBindVertexArray(dummy_vao)
     
     my_shader = Shader("shaders/main.vert", "shaders/main.frag")
-    texture_id = 0
+    
+    dummy_tex = GL.glGenTextures(1)
+    GL.glBindTexture(GL.GL_TEXTURE_2D, dummy_tex)
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 1, 1, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, np.array([255, 255, 255, 255], dtype=np.uint8))
+    
     line_drawer = LinePath()
     agent_sphere = SphereSubdivision(radius=1.0)
     
@@ -117,7 +129,6 @@ def main():
     ai_shape = None
     gui = AppGUI()
     current_epoch = 0
-    loss_z_scale = 1.0 
     
     optims = [
         GradientDescent("GD/SGD", [1.0, 0.2, 0.2], 0, 0),
@@ -132,7 +143,7 @@ def main():
     cameras[2].elevation, cameras[2].azimuth = 20.0, -45.0
 
     def set_race_track(loss_name, keep_pos=False):
-        nonlocal ai_shape, current_epoch, loss_z_scale
+        nonlocal ai_shape, current_epoch
         current_epoch = 0
         
         if not keep_pos:
@@ -162,7 +173,6 @@ def main():
                 gui.ai_scale = 1.0   
                 cameras[1].distance, cameras[1].elevation, cameras[1].azimuth = 15.0, 45.0, 45.0
 
-        # Nếu keep_pos = True thì nó nhảy thẳng xuống đây 
         optims[0].reset(gui.start_x - 1.0, gui.start_y)
         optims[1].reset(gui.start_x - 0.5, gui.start_y)
         optims[2].reset(gui.start_x,       gui.start_y)
@@ -271,10 +281,32 @@ def main():
         glfw.poll_events()
         impl.process_inputs()
 
-        if gui.texture_changed:
-            if texture_id > 0: GL.glDeleteTextures(1, [texture_id])
-            texture_id = load_texture(gui.texture_filepath)
+        if getattr(gui, 'texture_changed', False):
+            if len(scene_objects) > 0:
+                target_obj = scene_objects[getattr(gui, 'target_tex_obj_idx', 0)]
+                if target_obj.texture_id > 0: 
+                    GL.glDeleteTextures(1, [target_obj.texture_id])
+                target_obj.texture_id = load_texture(target_obj.texture_filepath)
             gui.texture_changed = False
+
+        if getattr(gui, 'delete_obj_requested', False):
+            if len(scene_objects) > 0:
+                scene_objects.pop(gui.selected_scene_obj_idx)
+                gui.selected_scene_obj_idx = max(0, gui.selected_scene_obj_idx - 1) 
+            gui.delete_obj_requested = False
+            
+        if getattr(gui, 'duplicate_obj_requested', False):
+            if len(scene_objects) > 0:
+                old_obj = scene_objects[gui.selected_scene_obj_idx]
+                new_obj = SceneObject(old_obj.shape, old_obj.name + " (Copy)")
+                new_obj.scale, new_obj.rot_x, new_obj.rot_y = old_obj.scale, old_obj.rot_x, old_obj.rot_y
+                new_obj.pos_x, new_obj.pos_y, new_obj.pos_z = old_obj.pos_x + 2.0, old_obj.pos_y, old_obj.pos_z
+                new_obj.render_mode, new_obj.texture_id = old_obj.render_mode, old_obj.texture_id
+                new_obj.texture_filepath = old_obj.texture_filepath
+                new_obj.flat_color = list(old_obj.flat_color)
+                scene_objects.append(new_obj)
+                gui.selected_scene_obj_idx = len(scene_objects) - 1
+            gui.duplicate_obj_requested = False
 
         if gui.reset_requested:
             if gui.is_ai_mode: set_race_track(gui.loss_funcs[gui.selected_loss_idx], keep_pos=False)
@@ -376,7 +408,6 @@ def main():
         GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "is_depth_map"), active_depth_map)
         GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "bg_color"), *gui.bg_color)
         
-        GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), *gui.flat_color)
         GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "light1_on"), gui.lights[0])
         GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "light2_on"), gui.lights[1])
         GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "light3_on"), gui.lights[2])
@@ -424,23 +455,6 @@ def main():
                         GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), *opt.color)
                         agent_sphere.draw()
         else:
-            final_render_mode = gui.render_mode
-            GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), final_render_mode)
-            
-            if texture_id > 0 and final_render_mode in [3, 4] and not active_depth_map:
-                GL.glActiveTexture(GL.GL_TEXTURE0)
-                GL.glBindTexture(GL.GL_TEXTURE_2D, texture_id)
-                GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "tex_diffuse"), 0)
-
-            if len(scene_objects) > 0:
-                active_obj = scene_objects[gui.selected_scene_obj_idx]
-                gui.obj_scale = active_obj.scale
-                gui.obj_rot_x = active_obj.rot_x
-                gui.obj_rot_y = active_obj.rot_y
-                gui.obj_pos_x = active_obj.pos_x
-                gui.obj_pos_y = active_obj.pos_y
-                gui.obj_pos_z = active_obj.pos_z
-
             for obj in scene_objects:
                 m_trans = translate(obj.pos_x, obj.pos_y, obj.pos_z)
                 m_scale = scale(obj.scale, obj.scale, obj.scale)
@@ -449,6 +463,15 @@ def main():
                 model_matrix = np.matmul(m_trans, np.matmul(np.matmul(m_rot_y, m_rot_x), m_scale))
                 
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(my_shader.render_idx, "model"), 1, GL.GL_TRUE, model_matrix)
+                
+                GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), obj.render_mode)
+                GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), *obj.flat_color)
+                
+                if obj.texture_id > 0 and obj.render_mode in [3, 4] and not active_depth_map:
+                    GL.glActiveTexture(GL.GL_TEXTURE0)
+                    GL.glBindTexture(GL.GL_TEXTURE_2D, obj.texture_id)
+                    GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "tex_diffuse"), 0)
+                
                 obj.shape.draw()
             
         imgui.render()

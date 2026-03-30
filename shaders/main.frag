@@ -3,23 +3,22 @@ out vec4 FragColor;
 
 in vec3 FragPos;
 in vec3 Normal;
-in vec3 vertexColor;
+in vec3 vertexColor; 
 in vec2 TexCoord;
 
 uniform int render_mode; 
-uniform vec3 flat_color;
+uniform vec3 flat_color; 
 uniform sampler2D tex_diffuse;
 
 uniform vec3 viewPos;
 uniform bool is_depth_map; 
 uniform vec3 bg_color;
 
-
 uniform bool light1_on;
 uniform bool light2_on;
 uniform bool light3_on; 
 
-vec3 sunLightDir = normalize(vec3(0.0, 1.0, 0.5)); 
+vec3 sunLightDir = normalize(vec3(0.5, 1.0, 0.5)); 
 vec3 sunLightColor = vec3(1.4, 1.4, 1.4); 
 
 vec3 pointLight1Pos = vec3(1.5, 0.0, 2.0); 
@@ -37,13 +36,16 @@ float LinearizeDepth(float depth)
     return (2.0 * near * far) / (far + near - z * (far - near));    
 }
 
-// Hàm tính Đèn Mặt Trời
 vec3 calcDirLight(vec3 lightDir, vec3 lightColor, vec3 norm, vec3 viewDir, vec3 baseColor) {
-    float diff = max(dot(norm, -lightDir), 0.0);
+    // Tia sáng đã chuẩn
+    float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor * baseColor;
-    vec3 reflectDir = reflect(lightDir, norm);
+    
+    // Reflect yêu cầu tia tới hướng VÀO vật thể (-lightDir)
+    vec3 reflectDir = reflect(-lightDir, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = 0.5 * spec * lightColor;
+    
     return diffuse + specular;
 }
 
@@ -68,8 +70,6 @@ void main() {
         float depth = LinearizeDepth(gl_FragCoord.z) / far; 
         depth = clamp(depth, 0.0, 1.0);
         
-        // mix(): Trộn màu Trắng (gần) với màu nền bg_color (xa)
-        // Vật ở càng xa thì màu càng giống màu nền, tạo cảm giác mờ ảo chiều sâu!
         vec3 depthFogColor = mix(vec3(1.0), bg_color, depth);
         
         FragColor = vec4(depthFogColor, 1.0);
@@ -78,22 +78,29 @@ void main() {
 
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
-    
     float ambientStrength = 0.2;
-    vec3 baseCol = (render_mode == 0) ? flat_color : 
-                   (render_mode == 3) ? texture(tex_diffuse, TexCoord).rgb : vertexColor;
-                   
+    
+    vec3 baseCol;
+    if (render_mode == 0) {
+        baseCol = flat_color; 
+    } 
+    else if (render_mode == 1 || render_mode == 2) {
+        baseCol = vertexColor; 
+    } 
+    else if (render_mode == 3 || render_mode == 4) {
+        baseCol = texture(tex_diffuse, TexCoord).rgb; 
+    }
+
     vec3 final_color = ambientStrength * baseCol;
 
     if (render_mode == 0 || render_mode == 1 || render_mode == 3) {
-        FragColor = vec4(baseCol, 1.0);
+        // (A), (B), (D) KHÔNG NHẬN ÁNH SÁNG (Unlit)
+        // Lưu ý: (B) giờ là cầu vồng nhưng tối thui (chỉ có Ambient)
+        FragColor = vec4(baseCol, 1.0); 
     } 
     else if (render_mode == 2 || render_mode == 4) {
-        if (render_mode == 4) { 
-            baseCol = mix(vertexColor, texture(tex_diffuse, TexCoord).rgb, 0.5);
-            final_color = ambientStrength * baseCol;
-        }
-        
+        // (C), (E) BẬT ĐÈN LÊN VÀ TỎA SÁNG!
+        // (C) bây giờ là cầu vồng lóng lánh ánh đèn!
         if (light1_on) final_color += calcDirLight(sunLightDir, sunLightColor, norm, viewDir, baseCol);
         if (light2_on) final_color += calcPointLight(pointLight1Pos, pointLight1Color, norm, FragPos, viewDir, baseCol);
         if (light3_on) final_color += calcPointLight(pointLight2Pos, pointLight2Color, norm, FragPos, viewDir, baseCol);

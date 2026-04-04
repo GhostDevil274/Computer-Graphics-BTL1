@@ -12,7 +12,7 @@ from libs.transform import Trackball, scale, rotate_x, rotate_y, translate
 from shapes.basic_2d import RegularPolygon, Rectangle, Ellipse, Trapezoid, Star, Arrow
 from shapes.basic_3d import (
     Cylinder, Cone, TruncatedCone, Torus, SphereLatLong, 
-    SphereSubdivision, SphereCube, Cube, Tetrahedron, MathSurface, ObjModel, HeatmapSurface
+    SphereSubdivision, SphereCube, Cube, Tetrahedron, MathSurface, ObjModel, PlyModel, HeatmapSurface
 )
 from libs.ai_optim import GradientDescent, Momentum, Nesterov, RMSprop, Adam, LossFunction
 
@@ -54,24 +54,28 @@ class LinePath:
     def __init__(self):
         self.vao = GL.glGenVertexArrays(1)
         self.vbo = GL.glGenBuffers(1)
-    def draw(self, history, color, shader_idx, model_matrix, active_z_scale):
+        
+    def draw(self, history, color, shader_idx, model_matrix, base_z_lift):
         if len(history) < 2: return
-        z_offset = 0.1 / active_z_scale if active_z_scale != 0 else 0.1
-        pts = [[x, y, z_loss + z_offset] for (x, y, z_loss) in history]
+        
+        # Add a tiny base lift so it doesn't clip into the grid
+        pts = [[x, y, z_loss + base_z_lift] for (x, y, z_loss) in history]
         pts_array = np.array(pts, dtype=np.float32)
+        
         GL.glBindVertexArray(self.vao)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self.vbo)
         GL.glBufferData(GL.GL_ARRAY_BUFFER, pts_array.nbytes, pts_array, GL.GL_DYNAMIC_DRAW)
         GL.glVertexAttribPointer(0, 3, GL.GL_FLOAT, GL.GL_FALSE, 0, None)
         GL.glEnableVertexAttribArray(0)
+        
         GL.glUniform1i(GL.glGetUniformLocation(shader_idx, "render_mode"), 0)
         GL.glUniform3f(GL.glGetUniformLocation(shader_idx, "flat_color"), *color)
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(shader_idx, "model"), 1, GL.GL_TRUE, model_matrix)
         
-        GL.glLineWidth(4.0)
+        GL.glLineWidth(4.0) 
         GL.glDrawArrays(GL.GL_LINE_STRIP, 0, len(pts))
-        GL.glLineWidth(1.0)
-        
+        GL.glLineWidth(1.0) 
+            
         GL.glBindVertexArray(0)
 
 def screen_to_world_ray(xpos, ypos, win_w, win_h, view_matrix, proj_matrix):
@@ -142,6 +146,8 @@ def main():
     cameras[1].elevation, cameras[1].azimuth = 80.0, 0.0 
     cameras[2].elevation, cameras[2].azimuth = 20.0, -45.0
 
+    ball_tex = load_texture("ball.jpg")
+
     def set_race_track(loss_name, keep_pos=False):
         nonlocal ai_shape, current_epoch
         current_epoch = 0
@@ -173,13 +179,9 @@ def main():
                 gui.ai_scale = 1.0   
                 cameras[1].distance, cameras[1].elevation, cameras[1].azimuth = 15.0, 45.0, 45.0
 
-        optims[0].reset(gui.start_x - 1.0, gui.start_y)
-        optims[1].reset(gui.start_x - 0.5, gui.start_y)
-        optims[2].reset(gui.start_x,       gui.start_y)
-        optims[3].reset(gui.start_x + 0.5, gui.start_y)
-        optims[4].reset(gui.start_x + 1.0, gui.start_y)
-        
-        for opt in optims:
+        micro_offsets = [-0.2, -0.1, 0.0, 0.1, 0.2] 
+        for i, opt in enumerate(optims):
+            opt.reset(gui.start_x + micro_offsets[i], gui.start_y)
             opt.z, _, _ = LossFunction.get_val_and_grad(loss_name, opt.x, opt.y, gui.custom_loss_str)
 
     def on_key(win, key, scancode, action, mods):
@@ -284,9 +286,28 @@ def main():
         if getattr(gui, 'texture_changed', False):
             if len(scene_objects) > 0:
                 target_obj = scene_objects[getattr(gui, 'target_tex_obj_idx', 0)]
-                if target_obj.texture_id > 0: 
-                    GL.glDeleteTextures(1, [target_obj.texture_id])
-                target_obj.texture_id = load_texture(target_obj.texture_filepath)
+                filepath = target_obj.texture_filepath
+                
+                if not filepath.startswith("assets"):
+                    if os.path.exists(os.path.join("assets", "models", filepath)):
+                        actual_img_path = os.path.join("assets", "models", filepath)
+                    else:
+                        actual_img_path = os.path.join("assets", "textures", filepath)
+                else:
+                    actual_img_path = filepath
+
+                print(f"⏳ Đang nạp ảnh trực tiếp từ: {actual_img_path} ...")
+                tex_id = load_texture(actual_img_path)
+                
+                if tex_id > 0:
+                    if target_obj.texture_id > 0: 
+                        GL.glDeleteTextures(1, [target_obj.texture_id])
+                    target_obj.texture_id = tex_id
+                    target_obj.render_mode = 4
+                    print("✅ Dán ảnh THÀNH CÔNG! Nhanh gọn lẹ!")
+                else:
+                    print(f"❌ [LỖI] Không tìm thấy ảnh. Ông gõ lại đúng tên file ảnh giùm tui cái!")
+                    
             gui.texture_changed = False
 
         if getattr(gui, 'delete_obj_requested', False):
@@ -348,11 +369,26 @@ def main():
             elif idx == 21: 
                 obj_path = gui.obj_filepath
                 if not obj_path.startswith("assets"): obj_path = os.path.join("assets", "models", obj_path)
-                new_shape = ObjModel(filepath=obj_path)
-                shape_name = "OBJ Model"
+                
+                if obj_path.lower().endswith(".ply"):
+                    new_shape = PlyModel(filepath=obj_path)
+                    shape_name = "PLY Model"
+                else:
+                    new_shape = ObjModel(filepath=obj_path)
+                    shape_name = "OBJ Model"
                 
             if new_shape is not None:
                 obj = SceneObject(new_shape, f"#{len(scene_objects)+1} {shape_name}")
+                if hasattr(new_shape, 'texture_file') and new_shape.texture_file:
+                    obj.texture_filepath = new_shape.texture_file
+                    tex_id = load_texture(new_shape.texture_file)
+                    if tex_id > 0:
+                        obj.texture_id = tex_id
+                        obj.render_mode = 4
+                elif hasattr(new_shape, 'diffuse_color') and new_shape.diffuse_color:
+                    obj.flat_color = new_shape.diffuse_color
+                    obj.render_mode = 3
+
                 obj.pos_x, obj.pos_y, obj.pos_z = gui.spawn_pos
                 scene_objects.append(obj)
                 gui.selected_scene_obj_idx = len(scene_objects) - 1
@@ -376,12 +412,30 @@ def main():
 
         optims[1].beta = gui.momentum_beta 
 
-        if gui.is_ai_mode and gui.sim_playing and current_epoch < gui.max_epochs and ai_shape is not None:
+        if gui.is_ai_mode and getattr(gui, 'sim_playing', False) and current_epoch < gui.max_epochs and ai_shape is not None:
             time_per_step = 1.0 / gui.steps_per_sec
             if current_time - last_step_time >= time_per_step:
+                actual_radius = 0.18 * gui.ai_scale 
+                
                 for i, opt in enumerate(optims):
                     if gui.opt_active[i]:
+                        if not hasattr(opt, 'last_pos'): opt.last_pos = np.array([opt.x, opt.y])
+                        if not hasattr(opt, 'rot_mat'): opt.rot_mat = np.identity(4)
+                        
                         opt.step(gui.loss_funcs[gui.selected_loss_idx], gui.lr, noise_level=getattr(gui, 'noise_level', 0.0), custom_func_str=gui.custom_loss_str)
+                        
+                        dx = opt.x - opt.last_pos[0]
+                        dy = opt.y - opt.last_pos[1]
+                        
+                        if np.hypot(dx, dy) > 0.0001:
+                            angle_factor = (1.0 / actual_radius) * (180.0 / np.pi) * (gui.roll_speed / 300.0)
+                            
+                            r_x = rotate_x(-dy * angle_factor)
+                            r_y = rotate_y(dx * angle_factor)
+
+                            opt.rot_mat = np.matmul(np.matmul(r_x, r_y), opt.rot_mat)
+                            opt.last_pos = np.array([opt.x, opt.y])
+                            
                 current_epoch += 1
                 last_step_time = current_time
                 if current_epoch >= gui.max_epochs: 
@@ -389,6 +443,26 @@ def main():
 
         gui.render(optims, current_epoch, cameras, scene_objects)
         
+        if gui.is_ai_mode:
+            if not hasattr(gui, 'ball_offset_z'): gui.ball_offset_z = 0.0
+            if not hasattr(gui, 'ball_offset_x'): gui.ball_offset_x = 0.0
+            if not hasattr(gui, 'ball_offset_y'): gui.ball_offset_y = 0.0
+            if not hasattr(gui, 'roll_speed'): gui.roll_speed = 300.0
+
+            imgui.begin("AI Ball Physics Tweaker", closable=False)
+            imgui.text_colored("Coordinate Tweaks (Anti-Clipping):", 0.2, 1.0, 0.2)
+            _, gui.ball_offset_z = imgui.slider_float("Z Offset (Up/Down)", gui.ball_offset_z, -0.5, 1.0)
+            _, gui.ball_offset_x = imgui.slider_float("X Offset (Left/Right)", gui.ball_offset_x, -1.0, 1.0)
+            _, gui.ball_offset_y = imgui.slider_float("Y Offset (Forward/Back)", gui.ball_offset_y, -1.0, 1.0)
+            imgui.spacing()
+            _, gui.roll_speed = imgui.slider_float("Roll Speed", gui.roll_speed, 10.0, 1000.0)
+            
+            if imgui.button("Reset Offsets"):
+                gui.ball_offset_z = 0.0
+                gui.ball_offset_x = 0.0
+                gui.ball_offset_y = 0.0
+            imgui.end()
+
         fb_width, fb_height = glfw.get_framebuffer_size(window)
         win_size = glfw.get_window_size(window)
         current_cam = cameras[gui.selected_cam_idx]
@@ -414,8 +488,10 @@ def main():
         inv_view = np.linalg.inv(view_matrix)
         GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "viewPos"), *inv_view[:3, 3])
 
-        if gui.is_wireframe: GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
-        else: GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+        if getattr(gui, 'is_wireframe', False): 
+            GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
+        else: 
+            GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
 
         if gui.is_ai_mode:
             if ai_shape is not None:
@@ -425,33 +501,57 @@ def main():
                 m_rot_y = rotate_y(gui.ai_rot_y)
                 ai_matrix = np.matmul(m_trans, np.matmul(np.matmul(m_rot_y, m_rot_x), m_scale))
                 
-                GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
-                GL.glPolygonOffset(1.0, 1.0)
-                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+                if not getattr(gui, 'is_wireframe', False):
+                    GL.glEnable(GL.GL_POLYGON_OFFSET_FILL)
+                    GL.glPolygonOffset(1.0, 1.0)
                 GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 1)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(my_shader.render_idx, "model"), 1, GL.GL_TRUE, ai_matrix)
                 ai_shape.draw()
-                GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
                 
-                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
-                GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 0)
-                GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), 0.15, 0.15, 0.15)
-                ai_shape.draw()
-                GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL) 
+                if not getattr(gui, 'is_wireframe', False):
+                    GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
+                    GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
+                    GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 0)
+                    GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), 0.15, 0.15, 0.15)
+                    ai_shape.draw()
+                    GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL) 
 
                 offsets_x = [-0.04, -0.02, 0.0, 0.02, 0.04] 
+                loss_name = gui.loss_funcs[gui.selected_loss_idx]
+
                 for i, opt in enumerate(optims):
                     if gui.opt_active[i]:
-                        line_drawer.draw(opt.history, opt.color, my_shader.render_idx, ai_matrix, gui.custom_z_scale)
-                        local_pos = np.array([opt.x + offsets_x[i], opt.y, opt.z], dtype=np.float32)
-                        world_pos = np.matmul(ai_matrix, np.array([local_pos[0], local_pos[1], local_pos[2], 1.0]))
                         
-                        bi_trans_world = translate(world_pos[0], world_pos[1] + 0.15, world_pos[2])
-                        bi_scale_world = scale(0.18 * gui.ai_scale, 0.18 * gui.ai_scale, 0.18 * gui.ai_scale)
-                        bi_model = np.matmul(bi_trans_world, bi_scale_world)
+                        base_lift = 0.05 / gui.custom_z_scale if gui.custom_z_scale != 0 else 0.05
+                        
+                        visual_shift = translate(gui.ball_offset_x, gui.ball_offset_y, gui.ball_offset_z)
+                        shifted_ai_matrix = np.matmul(ai_matrix, visual_shift)
+                        
+                        line_drawer.draw(opt.history, opt.color, my_shader.render_idx, shifted_ai_matrix, base_lift)
+                        
+                        actual_radius = 0.18 * gui.ai_scale 
+                        
+                        true_z, _, _ = LossFunction.get_val_and_grad(loss_name, opt.x, opt.y, gui.custom_loss_str)
+                        local_pos = np.array([opt.x, opt.y, true_z + base_lift], dtype=np.float32)
+                        
+                        world_pos = np.matmul(shifted_ai_matrix, np.array([local_pos[0], local_pos[1], local_pos[2], 1.0]))
+                        
+                        bi_trans_world = translate(world_pos[0], world_pos[1] + actual_radius, world_pos[2])
+                        bi_scale_world = scale(actual_radius, actual_radius, actual_radius)
+                        
+                        if not hasattr(opt, 'rot_mat'): opt.rot_mat = np.identity(4)
+                        bi_model = np.matmul(bi_trans_world, np.matmul(opt.rot_mat, bi_scale_world))
                         
                         GL.glUniformMatrix4fv(GL.glGetUniformLocation(my_shader.render_idx, "model"), 1, GL.GL_TRUE, bi_model)
-                        GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 0)
+                        
+                        if 'ball_tex' in locals() and ball_tex > 0:
+                            GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 5) 
+                            GL.glActiveTexture(GL.GL_TEXTURE0)
+                            GL.glBindTexture(GL.GL_TEXTURE_2D, ball_tex)
+                            GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "tex_diffuse"), 0)
+                        else:
+                            GL.glUniform1i(GL.glGetUniformLocation(my_shader.render_idx, "render_mode"), 0)
+                            
                         GL.glUniform3f(GL.glGetUniformLocation(my_shader.render_idx, "flat_color"), *opt.color)
                         agent_sphere.draw()
         else:

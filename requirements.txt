@@ -6,3 +6,4 @@ numpy
 pandas
 imgui[glfw] 
 Pillow
+trimesh

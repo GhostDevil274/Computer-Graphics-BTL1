@@ -1,10 +1,10 @@
 import numpy as np
+import trimesh
 import math
 import os
 from shapes.base_shape import BaseShape
 
 def generate_rainbow_colors(vertices):
-    """ Hàm tạo màu cầu vồng 3D """
     coords = np.array(vertices, dtype=np.float32)
     max_val = np.max(np.abs(coords)) if np.max(np.abs(coords)) != 0 else 1.0
     return ((coords / max_val + 1.0) / 2.0).astype(np.float32)
@@ -286,45 +286,90 @@ class MathSurface(BaseShape):
         
 "Mô hình 3D được nhập từ file .obj hoặc .ply."
 class ObjModel(BaseShape):
-    def __init__(self, filepath="model.obj"):
+    def __init__(self, filepath):
         vertices = []
-        indices = []
+        uvs = []
         
-        if not os.path.exists(filepath):
-            print(f"❌ Không tìm thấy file {filepath}! Đang hiển thị mô hình rỗng.")
-            # Tạo 1 tam giác bé xíu để code không bị crash
-            vertices = [[0,0,0], [0.1,0,0], [0,0.1,0]]
-            indices = [0,1,2]
-        else:
-            with open(filepath, 'r') as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if not parts: continue
-                    
-                    if parts[0] == 'v':
-                        vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
-                        
-                    elif parts[0] == 'f':
-                        face_verts = []
-                        for p in parts[1:]:
-                            idx = int(p.split('/')[0]) - 1
-                            face_verts.append(idx)
-                            
-                        if len(face_verts) == 3:
-                            indices.extend(face_verts)
-                        elif len(face_verts) == 4:
-                            indices.extend([face_verts[0], face_verts[1], face_verts[2]])
-                            indices.extend([face_verts[0], face_verts[2], face_verts[3]])
-
-        verts_array = np.array(vertices, dtype=np.float32)
-        if len(verts_array) > 0:
-            max_val = np.max(np.abs(verts_array)) if np.max(np.abs(verts_array)) > 0 else 1.0
-            verts_array = verts_array / max_val * 1.5
-
-        super().__init__(verts_array, 
-                         np.array(indices, dtype=np.uint32), 
-                         generate_rainbow_colors(verts_array))
+        final_vertices = []
+        final_uvs = []
+        final_indices = []
         
+        # Đọc file .obj
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                if line.startswith('v '):
+                    vertices.append([float(x) for x in line.strip().split()[1:4]])
+                elif line.startswith('vt '):
+                    uvs.append([float(x) for x in line.strip().split()[1:3]])
+                elif line.startswith('f '):
+                    face_data = line.strip().split()[1:]
+                    if len(face_data) >= 3:
+                        # Cắt tam giác cho các đa giác
+                        for i in range(1, len(face_data) - 1):
+                            tris = [face_data[0], face_data[i], face_data[i+1]]
+                            for v_data in tris:
+                                parts = v_data.split('/')
+                                v_idx = int(parts[0]) - 1
+                                final_vertices.append(vertices[v_idx])
+                                
+                                # Nếu có tọa độ UV (vt)
+                                if len(parts) > 1 and parts[1]:
+                                    vt_idx = int(parts[1]) - 1
+                                    final_uvs.append(uvs[vt_idx])
+                                else:
+                                    final_uvs.append([0.0, 0.0])
+                                    
+                                final_indices.append(len(final_vertices) - 1)
+
+        final_vertices = np.array(final_vertices, dtype=np.float32)
+        final_indices = np.array(final_indices, dtype=np.uint32)
+        
+        # Scale cho vừa khung hình
+        max_val = np.max(np.abs(final_vertices)) if np.max(np.abs(final_vertices)) > 0 else 1.0
+        final_vertices = final_vertices / max_val * 1.5
+        
+        # Gọi hàm tạo của BaseShape để có hàm draw()
+        super().__init__(
+            final_vertices, 
+            final_indices, 
+            generate_rainbow_colors(final_vertices),
+            uvs=final_uvs
+        )
+        
+class PlyModel(BaseShape):
+    def __init__(self, filepath):
+        try:
+            # Trimesh tự động phân giải mọi định dạng, tự nối các mặt (faces)
+            mesh = trimesh.load(filepath, force='mesh') 
+            
+            vertices = np.array(mesh.vertices, dtype=np.float32)
+            
+            # Làm phẳng mảng 2D faces của trimesh thành 1D cho OpenGL
+            if hasattr(mesh, 'faces') and len(mesh.faces) > 0:
+                indices = np.array(mesh.faces.flatten(), dtype=np.uint32)
+            else:
+                indices = np.array([], dtype=np.uint32)
+            
+            # Chuẩn hóa kích thước (Scale) cho vừa màn hình
+            center = vertices.mean(axis=0)
+            vertices = vertices - center
+            max_val = np.max(np.abs(vertices)) if np.max(np.abs(vertices)) > 0 else 1.0
+            vertices = (vertices / max_val) * 1.5
+            
+            # File PLY thường từ máy scan, KHÔNG CÓ ảnh Texture dán kèm.
+            # Ta tạo mảng UV rỗng để OpenGL không bị crash nếu lỡ tay chọn Mode Texture
+            uvs = [[0.0, 0.0] for _ in range(len(vertices))]
+            
+            super().__init__(
+                vertices, 
+                indices, 
+                generate_rainbow_colors(vertices),
+                uvs=uvs
+            )
+        except Exception as e:
+            print(f"❌ [LỖI PLY] Không thể đọc file: {e}")
+            super().__init__(np.array([], dtype=np.float32), np.array([], dtype=np.uint32), [])
+
 class HeatmapSurface(BaseShape):
     def __init__(self, loss_name="Quadratic", custom_func_str="x**2 + y**2"):
         from libs.ai_optim import LossFunction 

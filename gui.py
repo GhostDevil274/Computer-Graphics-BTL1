@@ -193,6 +193,7 @@ class AppGUI:
         imgui.set_next_window_position(io.display_size.x - 440, 20, imgui.FIRST_USE_EVER)
         
         imgui.begin("AI OPTIMIZATION (PART 1.2)", flags=imgui.WINDOW_ALWAYS_VERTICAL_SCROLLBAR)
+        _, self.is_wireframe = imgui.checkbox("Wireframe Overlay", getattr(self, 'is_wireframe', False))
         
         imgui.spacing()
         changed_ai, self.is_ai_mode = imgui.checkbox(">>> ENABLE AI SIMULATION MODE <<<", self.is_ai_mode)

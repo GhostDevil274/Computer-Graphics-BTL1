@@ -49,15 +49,17 @@ class AppGUI:
         
         self.custom_loss_str = "x**2 + y**2"
         self.custom_z_scale = 0.15  
-        self.start_x = -3.0        
-        self.start_y = 3.0         
         
+        # --- TỌA ĐỘ THẢ RƠI CHUẨN ---
+        self.start_pos = [-3.0, 3.0, 100.0] 
+        self.mouse_dragging_cam = False
+
         self.opt_active = [True, True, True, True, True]
         self.noise_level = 0.0
         self.lr = 0.005
         self.momentum_beta = 0.90
         self.max_epochs = 2000
-        self.steps_per_sec = 10 
+        self.steps_per_sec = 20 
         self.sim_playing = False
         self.reset_requested = False
         self.reposition_requested = False 
@@ -194,7 +196,6 @@ class AppGUI:
         
         imgui.begin("AI OPTIMIZATION (PART 1.2)", flags=imgui.WINDOW_ALWAYS_VERTICAL_SCROLLBAR)
         
-        
         imgui.spacing()
         changed_ai, self.is_ai_mode = imgui.checkbox(">>> ENABLE AI SIMULATION MODE <<<", self.is_ai_mode)
         _, self.is_wireframe = imgui.checkbox("Wireframe Overlay", getattr(self, 'is_wireframe', False))
@@ -225,9 +226,14 @@ class AppGUI:
                 imgui.text_colored("God Mode Controls:", 1.0, 0.8, 0.2)
                 _, self.custom_z_scale = imgui.slider_float("Mountain Z-Scale", self.custom_z_scale, 0.001, 1.0, format="%.3f")
                 
-                changed_x, self.start_x = imgui.slider_float("Drop Pos X", self.start_x, -10.0, 10.0)
-                changed_y, self.start_y = imgui.slider_float("Drop Pos Y", self.start_y, -10.0, 10.0)
-                if changed_x or changed_y:
+                imgui.spacing()
+                imgui.text_colored("Drop Position (X, Y, Z):", 0.4, 1.0, 0.4)
+                changed_x, self.start_pos[0] = imgui.slider_float("Drop X", self.start_pos[0], -15.0, 15.0)
+                changed_y, self.start_pos[1] = imgui.slider_float("Drop Y", self.start_pos[1], -15.0, 15.0)
+                # KÉO Z LÊN ĐẾN 3000 ĐỂ THẢ ĐƯỢC CẢ Ở HÀM ROSENBROCK
+                changed_z, self.start_pos[2] = imgui.slider_float("Drop Z (Height)", self.start_pos[2], -5.0, 3000.0)
+                
+                if changed_x or changed_y or changed_z:
                     self.reposition_requested = True 
 
             expanded_ai, _ = imgui.collapsing_header("B. Agents & Hyperparams", flags=imgui.TREE_NODE_DEFAULT_OPEN)
